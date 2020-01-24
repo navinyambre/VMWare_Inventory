@@ -1,0 +1,173 @@
+<#
+  Version:        1.0
+  Author:         Navinya Ambre
+  Creation Date:  20/01/2020
+#>
+
+Import-module VMware.VimAutomation.Core
+Import-module VMware.VimAutomation.Vds
+Import-module VMware.VimAutomation.Cloud
+#Import-module VMware.VimAutomation.PCloud
+Import-module VMware.VimAutomation.Cis.Core
+Import-module VMware.VimAutomation.Storage
+Import-module VMware.VimAutomation.HorizonView
+#Import-module VMware.VimAutomation.HA
+Import-module VMware.VimAutomation.vROps
+Import-module VMware.VumAutomation
+Import-module VMware.DeployAutomation
+Import-module VMware.ImageBuilder
+Import-module VMware.VimAutomation.License
+
+read-host -assecurestring | convertfrom-securestring | out-file F:\Script\Sec.txt
+$password = get-content F:\Script\Sec.txt | convertto-securestring 
+$credential_Amer = new-object -typename System.Management.Automation.PSCredential -argumentlist domain\username, $password
+$credential_Emea = new-object -typename System.Management.Automation.PSCredential -argumentlist domain\username, $password
+$AMERVcenters = Get-VIServer amchavic02, amdcavic01 -Credential $credential_amer
+$EMEAVcenters = Get-VIServer emffavic01, empaavic01 -Credential $credential_emea
+$Vcenters = $AMERVcenters  + $EMEAVcenters
+$VMArray = @()
+$i=0
+foreach($Vcenter  in $Vcenters)
+{
+
+$VMs = Get-VM -Server $Vcenter -Name * | Get-View
+
+foreach ($VM in $VMs)
+{
+$VMName = $VM.Name
+$OSName = $VM.summary.config.guestFullName
+$PowerState = $VM.Runtime.PowerState
+$Datacenter = Get-Datacenter -VM $VM.Name
+
+
+$Results = New-Object Object
+$Results | Add-Member -Type NoteProperty -Name 'VMName' -Value $VMName
+$Results | Add-Member -Type NoteProperty -Name 'OSName' -Value $OSName
+$Results | Add-Member -Type NoteProperty -Name 'PowerState' -Value $PowerState
+$Results | Add-Member -Type NoteProperty -Name 'VCenterName' -Value $VIServer
+$Results | Add-Member -Type NoteProperty -Name 'DatacenterName' -Value $Datacenter
+
+$VMArray += $Results
+
+$i++
+
+}
+}
+$VMArray | Export-Csv -Path F:\Script\VMlist.csv -NoTypeInformation
+
+
+$VMCount = $VMArray.Count
+
+$WindowsMachinesList = $VMArray | Where-Object {$_.OSName -like '*Windows*'} #added
+$poweredOnWindowsMachines=$WindowsMachinesList | Where-Object {$_.PowerState -eq 'poweredOn'}#added
+$poweredOnWindowsMachines |ForEach-Object{if(($_.vcenterName.Name -eq 'amchavic02') -or ($_.vcenterName.Name -eq 'amdcavic01')){$_ | Add-Member -MemberType NoteProperty -Name "Region" -Value "Amer"} else {$_ | Add-Member -MemberType NoteProperty -Name "Region" -Value "Emea"}}  #added
+$poweredOnWindowsMachines | Select-Object VMName,Region,OSName | Export-Csv F:\Script\VMware_Data.csv -NoTypeInformation
+$poweredOnWindowsMachines | Select-Object VMName,Region,OSName | Export-Csv \\amertrofs02\Kelly\IT\Data\Sogeti_Documents\Inventory_Audit\VMware_Data.csv -NoTypeInformation
+#$poweredOnWindowsMachines1=$poweredOnWindowsMachines
+#$poweredOnWindowsMachines1[620] | ForEach-Object{if(($_.vcenterName.Name -eq 'amchavic02') -or ($_.vcenterName.Name -eq 'amdcavic01')){$_ | Add-Member -MemberType NoteProperty -Name "Region" -Value "Amer"} else {$_ | Add-Member -MemberType NoteProperty -Name "Region" -Value "Emea"}}
+
+$WindowsMachines = ($VMArray | Where-Object {$_.OSName -like '*Windows*'}).count
+$LinuxMachines = ($VMArray | Where-Object {$_.OSName -notlike '*Windows*'}).count
+
+$SummaryArray = @()
+
+$Summary = New-Object Object
+$Summary | Add-Member -Type NoteProperty -Name 'Total Number of VMs' -Value $VMCount
+$Summary | Add-Member -Type NoteProperty -Name 'Total Number of Windows Machines' -Value $WindowsMachines
+$Summary | Add-Member -Type NoteProperty -Name 'Total Number of Linux Machines' -Value $LinuxMachines
+#$Summary | Add-Member -Type NoteProperty -Name 'VCenterName' -Value $VIServer
+
+$SummaryArray += $Summary
+
+
+$SummaryCount = @()
+
+foreach($dc in Get-Datacenter){
+    foreach($cluster in Get-Cluster -Location $dc){
+        foreach($esx in Get-VMHost -Location $cluster){
+            $VMCounts = Get-VM -Location $esx |
+            Select @{N='Datacenter';E={$dc.Name}},
+                @{N='Cluster';E={$cluster.Name}},
+                @{N='VMhost';E={$esx.Name}},Name
+                $SummaryCount = $SummaryCount + $VMCounts
+        }}}
+
+$Chicago_CH3 = ($SummaryCount | Where-Object {$_.Datacenter -like '*Chicago_CH3*'}).count
+$Ashburn_DC10 = ($SummaryCount | Where-Object {$_.Datacenter -like '*Ashburn_DC10*'}).count
+$Troy_HQ = ($SummaryCount | Where-Object {$_.Datacenter -like '*Troy HQ*'}).count
+$Brazil = ($SummaryCount | Where-Object {$_.Datacenter -like '*Brazil*'}).count
+$Mexico = ($SummaryCount | Where-Object {$_.Datacenter -like '*Mexico*'}).count
+$Frankfurt = ($SummaryCount | Where-Object {$_.Datacenter -like '*Frankfurt*'}).count
+$Paris = ($SummaryCount | Where-Object {$_.Datacenter -like '*Paris*'}).count
+
+
+$SummaryInv = New-Object Object
+$SummaryInv | Add-Member -Type NoteProperty -Name 'Chicago' -Value $Chicago_CH3
+$SummaryInv | Add-Member -Type NoteProperty -Name 'Ashburn' -Value $Ashburn_DC10
+$SummaryInv | Add-Member -Type NoteProperty -Name 'Troy' -Value $Troy_HQ
+$SummaryInv | Add-Member -Type NoteProperty -Name 'Brazil' -Value $Brazil
+$SummaryInv | Add-Member -Type NoteProperty -Name 'Mexico' -Value $Mexico
+$SummaryInv | Add-Member -Type NoteProperty -Name 'Frankfurt' -Value $Frankfurt
+$SummaryInv | Add-Member -Type NoteProperty -Name 'Paris' -Value $Paris
+
+
+
+
+
+
+$smtpServer = “your smtp server”
+$smtpFrom = “vminventory@yourdomain”
+$smtpTo = “receiver mail ID”
+$date = Date
+$messageSubject = “All Datacenter inventory for Virtual Machines”
+
+$message = New-Object System.Net.Mail.MailMessage $smtpfrom, $smtpto
+$message.Subject = $messageSubject
+$message.IsBodyHTML = $true
+
+
+
+$Header = @"
+  
+<style>
+  body {
+    font-family: "Calibri";
+    font-size: 12pt;
+    color: #000000;
+    }
+  th, td { 
+    border: 1px solid #e57300;
+    border-collapse: collapse;
+    padding: 5px;
+    }
+  th {
+    font-size: 2.0em;
+    text-align: left;
+    background-color: #003366;
+    color: #ffffff;
+    }
+  td {
+    color: #000000;
+    }
+  .even { background-color: #ffffff; }
+  .odd { background-color: #bfbfbf; }
+</style>
+  
+"@
+
+
+$message.Body = $SummaryArray + $SummaryInv | ConvertTo-Html -Head $Header -As TABLE -precontent "Hello All,<br>
+<br>
+This is Monthly inventory Report for VCenter. Please find attached report.
+ <br>
+ <br>
+ Date: $date
+" -PostContent $Header
+
+$emailattachment = 'F:\Script\VMlist.csv'
+$attachment = New-Object System.Net.Mail.Attachment($emailattachment, 'text/plain')
+$message.Attachments.Add($attachment)
+
+
+$smtp = New-Object Net.Mail.SmtpClient($smtpServer)
+$smtp.Send($message)
